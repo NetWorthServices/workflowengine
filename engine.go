@@ -11,12 +11,11 @@ import (
 	"git.aax.dev/agora-altx/models-go/networth"
 	"git.aax.dev/agora-altx/utils-go/util"
 	"git.aax.dev/agora-altx/workflow-engine/workflowstructs"
-	"github.com/labstack/echo"
 	"github.com/tidwall/gjson"
 )
 
 // HandleRoute takes the step and sends it to the correct engine
-func HandleRoute(routes WorkflowDefinitionSet, stepRaw, payload json.RawMessage, callback workflowCallback, c echo.Context) (*networth.WorkflowStep, networth.Activity, bool) {
+func HandleRoute(routes WorkflowDefinitionSet, stepRaw json.RawMessage, payload json.RawMessage, callback workflowCallback) (*networth.WorkflowStep, networth.Activity, bool) {
 	var step stepStructure
 	var payloadObject workflowstructs.Payload
 
@@ -32,8 +31,6 @@ func HandleRoute(routes WorkflowDefinitionSet, stepRaw, payload json.RawMessage,
 		}
 		tmp.Waterfall = []util.JSONObject{}
 		payloadObject.Merge(tmp)
-		//util.Describe(*payloadObject.ActivityMetaData)
-		//*payloadObject.ActivityMetaData = *tmp.ActivityMetaData
 	}
 
 	msg := networth.ActivityMessage{
@@ -135,14 +132,14 @@ func HandleRoute(routes WorkflowDefinitionSet, stepRaw, payload json.RawMessage,
 
 	if len(step.Argument.Responses) > 0 {
 		newPayload, _ := json.Marshal(payloadObject)
-		resp := handleEvaluation(routes, step, newPayload, c)
+		resp := handleEvaluation(routes, step, newPayload)
 		payloadObject.RouteID = resp.Route
 		newPayload, _ = json.Marshal(payloadObject)
 		nextStep := networth.FindWorkflowStepByID(resp.StepID, "")
 		if nextStep.ID == "" {
 			return nil, act, true
 		}
-		return HandleRoute(routes, nextStep, newPayload, callback, c)
+		return HandleRoute(routes, nextStep, newPayload, callback)
 	}
 
 	return nil, act, true
@@ -150,7 +147,7 @@ func HandleRoute(routes WorkflowDefinitionSet, stepRaw, payload json.RawMessage,
 }
 
 // HandleEvaluation takes the step and returns the correct response
-func handleEvaluation(routes workflowstructs.WorkflowDefinitionSet, step networth.WorkflowStep, payload json.RawMessage, c echo.Context) (response networth.WorkflowResponse) {
+func handleEvaluation(routes workflowstructs.WorkflowDefinitionSet, step networth.WorkflowStep, payload json.RawMessage) (response networth.WorkflowResponse) {
 	var payloadObject workflowstructs.Payload
 
 	err := json.Unmarshal(payload, &payloadObject)
@@ -168,10 +165,4 @@ func handleEvaluation(routes workflowstructs.WorkflowDefinitionSet, step networt
 	}
 
 	return networth.WorkflowResponse{}
-}
-
-func createRequestHeaders(c echo.Context) (resp util.JSONObject) {
-	resp["Remote-Host"] = c.Request().RemoteAddr
-	resp["User-Agent"] = c.Request().UserAgent()
-	return
 }
