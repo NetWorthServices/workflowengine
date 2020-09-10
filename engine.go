@@ -3,23 +3,41 @@ package workflowengine
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
-	"git.aax.dev/agora-altx/apiarcade/sockets"
 	"git.aax.dev/agora-altx/models-go/networth"
-	"git.aax.dev/agora-altx/utils-go/util"
 	"git.aax.dev/agora-altx/workflow-engine/workflowstructs"
 	"github.com/tidwall/gjson"
 )
 
 // HandleRoute takes the step and sends it to the correct engine
-func HandleRoute(routes WorkflowDefinitionSet, stepRaw json.RawMessage, payload json.RawMessage, callback workflowCallback) (*networth.WorkflowStep, networth.Activity, bool) {
-	var step stepStructure
-	var payloadObject workflowstructs.Payload
+// routes is the definition of functions for both actions and decisions
+// steps is the raw JSON structure of all of the workflow steps.
+// payload is the current JSON payload of the resulting workflow
+// nextStep is the id of the step that is going to be ran. Can be blank (which it will then get the first workflow step)
+// callback is a function that gets called after the action has been ran for the step.
+func HandleRoute(routes WorkflowDefinitionSet, stepsRaw json.RawMessage, payload json.RawMessage, nextStep string, callback workflowCallback) (response json.RawMessage, err *error) {
+	var step StepStructure
+	var steps []StepStructure
+	var payloadObject JSONObject
 
-	err := json.Unmarshal(stepRaw, &step)
+	json.Unmarshal(stepsRaw, &steps)
+	if nextStep == "" {
+		step = steps[0]
+	} else {
+		for _, s := range steps {
+			if s.ID == nextStep {
+				step = s
+			}
+		}
+		if step.ID == "" {
+			err = errors.New("No new additional step ID")
+			return payload, err
+		}
+	}
 
 	// Take the existing payload item and merge it with the last item in the activity's thread
 	if len(act.ThreadJSON) > 0 {
@@ -29,7 +47,6 @@ func HandleRoute(routes WorkflowDefinitionSet, stepRaw json.RawMessage, payload 
 			ActivityID:       payloadObject.ActivityID,
 			ActivityMetaData: newestEntry,
 		}
-		tmp.Waterfall = []util.JSONObject{}
 		payloadObject.Merge(tmp)
 	}
 
@@ -50,39 +67,26 @@ func HandleRoute(routes WorkflowDefinitionSet, stepRaw json.RawMessage, payload 
 		}
 
 		str, _ := json.Marshal(payloadObject)
-		blankStep := networth.WorkflowStep{
+		blankStep := StepStructure{
 			UserInput: true,
 			Route:     "STANDARD.BYPASS",
-			Argument: networth.WorkflowArgument{
-				Payload: str,
-			},
+			Payload:   str,
 		}
 		return &blankStep, act, false
 	}
-	payloadObject.ExecuteType = networth.ETDefault
 
 	action := routes[step.Route].Action
 	action(step, &payloadObject, routes, c)
 
 	if step.Sender != "" {
-		if step.Sender == "aax" {
-			entities := networth.FindEntityWithStatus(networth.EntityStatusAdmin)
-			payloadObject.Sender = entities[0].ID
-		} else {
-			r := gjson.GetBytes(payload, `context.`+step.Sender)
-			payloadObject.Sender = r.String()
-		}
+		r := gjson.GetBytes(payload, `context.`+step.Sender)
+		payloadObject.Sender = r.String()
 	} else {
 		payloadObject.Sender = payloadObject.From
 	}
 	if step.SendTo != "" {
-		if step.SendTo == "aax" {
-			entities := networth.FindEntityWithStatus(networth.EntityStatusAdmin)
-			payloadObject.To = append(payloadObject.To, entities[0].ID)
-		} else {
-			r := gjson.GetBytes(payload, `context.`+step.SendTo)
-			payloadObject.To = append(payloadObject.To, r.String())
-		}
+		r := gjson.GetBytes(payload, `context.`+step.SendTo)
+		payloadObject.To = append(payloadObject.To, r.String())
 	}
 
 	if len(payloadObject.To) < 1 {
@@ -114,14 +118,7 @@ func HandleRoute(routes WorkflowDefinitionSet, stepRaw json.RawMessage, payload 
 	// Do the Blockchain add right here!
 	callback(&msg)
 
-	act.Find(payloadObject.ActivityID)
-	act.AttachMessage(&msg)
-	act.Update()
-	act.Populate()
-
 	// Deal with the payload in the activity thread
-
-	sockets.CreateActivitySocketMessage(act, "")
 
 	payloadObject.InvokedBy = ""
 	step.Argument.Payload, _ = json.Marshal(payloadObject)
@@ -147,13 +144,10 @@ func HandleRoute(routes WorkflowDefinitionSet, stepRaw json.RawMessage, payload 
 }
 
 // HandleEvaluation takes the step and returns the correct response
-func handleEvaluation(routes workflowstructs.WorkflowDefinitionSet, step networth.WorkflowStep, payload json.RawMessage) (response networth.WorkflowResponse) {
-	var payloadObject workflowstructs.Payload
+func handleEvaluation(routes WorkflowDefinitionSet, step networth.WorkflowStep, payload json.RawMessage) (response networth.WorkflowResponse) {
+	var payloadObject Payload
 
-	err := json.Unmarshal(payload, &payloadObject)
-	if err != nil {
-		util.Describe(err)
-	}
+	json.Unmarshal(payload, &payloadObject)
 
 	for _, resp := range step.Argument.Responses {
 
