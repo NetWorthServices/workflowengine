@@ -81,8 +81,8 @@ func HandleRoute(routes WorkflowDefinitionSet, stepsRaw json.RawMessage, payload
 
 	if msg["debug"].(bool) {
 		str := msg.Export()
-		fmt.Println("================ DEBUG  MODE =================")
-		fmt.Println("============== CURRENT PAYLOAD ===============")
+		fmt.Println("================= DEBUG  MODE ==================")
+		fmt.Println("=============== CURRENT PAYLOAD ================")
 		fmt.Printf("%v\n", string(str))
 		fmt.Printf("\n\nContinue (Y/n) ")
 
